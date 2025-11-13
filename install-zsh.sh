@@ -11,8 +11,45 @@ echo "🔧 Installing Zsh and dependencies..."
 apt update
 apt install -y zsh curl git
 
-echo "🔧 Setting Zsh as default shell for user: $TARGET_USER"
-chsh -s "$(which zsh)" "$TARGET_USER"
+echo ""
+echo "🛠️  Zsh is installed. How would you like to set it as the default shell?"
+echo "1) Only for the current user ($TARGET_USER)"
+echo "2) For all existing users"
+echo "3) For all future users (via /etc/default/useradd)"
+echo "4) All of the above"
+echo "5) Skip setting default shell"
+read -rp "Enter your choice [1-5]: " ZSH_CHOICE
+
+case "$ZSH_CHOICE" in
+  1)
+    echo "🔧 Setting Zsh as default shell for $TARGET_USER"
+    chsh -s "$(which zsh)" "$TARGET_USER"
+    ;;
+  2)
+    echo "🔧 Setting Zsh as default shell for all existing users"
+    for u in $(awk -F: '{ if ($3 >= 1000 && $1 != "nobody") print $1 }' /etc/passwd); do
+      chsh -s "$(which zsh)" "$u" || echo "⚠️ Failed to change shell for $u"
+    done
+    ;;
+  3)
+    echo "🔧 Setting Zsh as default shell for all future users"
+    sed -i "s|^SHELL=.*|SHELL=$(which zsh)|" /etc/default/useradd
+    ;;
+  4)
+    echo "🔧 Applying all options..."
+    chsh -s "$(which zsh)" "$TARGET_USER"
+    for u in $(awk -F: '{ if ($3 >= 1000 && $1 != "nobody") print $1 }' /etc/passwd); do
+      chsh -s "$(which zsh)" "$u" || echo "⚠️ Failed to change shell for $u"
+    done
+    sed -i "s|^SHELL=.*|SHELL=$(which zsh)|" /etc/default/useradd
+    ;;
+  5)
+    echo "⏭️  Skipping shell change."
+    ;;
+  *)
+    echo "❌ Invalid choice. Skipping shell change."
+    ;;
+esac
 
 echo "🎨 Installing Oh My Zsh for $TARGET_USER..."
 export RUNZSH=no
