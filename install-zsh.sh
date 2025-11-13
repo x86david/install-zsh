@@ -14,34 +14,39 @@ apt install -y zsh curl git
 echo ""
 echo "🛠️  Zsh is installed. How would you like to set it as the default shell?"
 echo "1) Only for the current user ($TARGET_USER)"
-echo "2) For all existing users"
+echo "2) For all existing users (including root)"
 echo "3) For all future users (via /etc/default/useradd)"
 echo "4) All of the above"
 echo "5) Skip setting default shell"
 read -rp "Enter your choice [1-5]: " ZSH_CHOICE
 
+ZSH_PATH="$(which zsh)"
+
 case "$ZSH_CHOICE" in
   1)
-    echo "🔧 Setting Zsh as default shell for $TARGET_USER"
-    chsh -s "$(which zsh)" "$TARGET_USER"
+    echo "🔧 Setting Zsh as default shell for current user: $TARGET_USER"
+    chsh -s "$ZSH_PATH" "$TARGET_USER"
     ;;
   2)
-    echo "🔧 Setting Zsh as default shell for all existing users"
-    for u in $(awk -F: '{ if ($3 >= 1000 && $1 != "nobody") print $1 }' /etc/passwd); do
-      chsh -s "$(which zsh)" "$u" || echo "⚠️ Failed to change shell for $u"
+    echo "🔧 Setting Zsh as default shell for all existing users (including root)"
+    for u in $(awk -F: '{ if ($3 >= 1000 || $1 == "root") print $1 }' /etc/passwd); do
+      echo "🔄 Changing shell for user: $u"
+      chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
     done
     ;;
   3)
     echo "🔧 Setting Zsh as default shell for all future users"
-    sed -i "s|^SHELL=.*|SHELL=$(which zsh)|" /etc/default/useradd
+    sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
     ;;
   4)
     echo "🔧 Applying all options..."
-    chsh -s "$(which zsh)" "$TARGET_USER"
-    for u in $(awk -F: '{ if ($3 >= 1000 && $1 != "nobody") print $1 }' /etc/passwd); do
-      chsh -s "$(which zsh)" "$u" || echo "⚠️ Failed to change shell for $u"
+    echo "🔄 Changing shell for current user: $TARGET_USER"
+    chsh -s "$ZSH_PATH" "$TARGET_USER"
+    for u in $(awk -F: '{ if ($3 >= 1000 || $1 == "root") print $1 }' /etc/passwd); do
+      echo "🔄 Changing shell for user: $u"
+      chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
     done
-    sed -i "s|^SHELL=.*|SHELL=$(which zsh)|" /etc/default/useradd
+    sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
     ;;
   5)
     echo "⏭️  Skipping shell change."
