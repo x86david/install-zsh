@@ -25,8 +25,6 @@ ZSH_PATH="$(which zsh)"
 # Function: change shell only for users who currently use /bin/bash
 change_shell_for_bash_users() {
     echo "🔧 Setting Zsh as default shell ONLY for users who currently use /bin/bash"
-    echo "ℹ️  This avoids modifying system accounts or users with nologin/false shells."
-
     for u in $(awk -F: '$7 == "/bin/bash" {print $1}' /etc/passwd); do
         echo "🔄 Changing shell for user: $u"
         chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
@@ -35,32 +33,21 @@ change_shell_for_bash_users() {
 
 case "$ZSH_CHOICE" in
   1)
-    echo "🔧 Setting Zsh as default shell for current user: $TARGET_USER"
     chsh -s "$ZSH_PATH" "$TARGET_USER"
     ;;
   2)
     change_shell_for_bash_users
     ;;
   3)
-    echo "🔧 Setting Zsh as default shell for all future users"
     sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
     ;;
   4)
-    echo "🔧 Applying all options..."
-
-    echo "🔄 Changing shell for current user: $TARGET_USER"
     chsh -s "$ZSH_PATH" "$TARGET_USER"
-
     change_shell_for_bash_users
-
-    echo "🔧 Setting Zsh as default shell for all future users"
     sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
     ;;
   5)
     echo "⏭️  Skipping shell change."
-    ;;
-  *)
-    echo "❌ Invalid choice. Skipping shell change."
     ;;
 esac
 
@@ -76,11 +63,11 @@ if [ ! -f "$TARGET_HOME/.zshrc" ]; then
 fi
 
 # Install Oh My Zsh without overwriting .zshrc
-if [ -d "$ZSH" ]; then
-  echo "⚠️  Oh My Zsh already installed at $ZSH. Skipping installation."
-else
+if [ ! -d "$ZSH" ]; then
   sudo -u "$TARGET_USER" KEEP_ZSHRC=yes RUNZSH=no CHSH=no \
     sh -c 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+else
+  echo "⚠️  Oh My Zsh already installed. Skipping."
 fi
 
 ZSH_CUSTOM="${ZSH_CUSTOM:-$ZSH/custom}"
@@ -113,7 +100,7 @@ else
   echo 'plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search)' >> "$ZSHRC"
 fi
 
-# Append configuration block
+# Append configuration block in correct order
 cat << 'EOF' >> "$ZSHRC"
 
 # Fix for syntax highlighting commands like 'service'
@@ -126,10 +113,10 @@ PROMPT='%F{green}%n@%m:%~%f$ '
 autoload -Uz compinit
 compinit
 
-# Source plugins manually
+# Load plugins in correct order
 source $ZSH_CUSTOM/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
-source $ZSH_CUSTOM/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 source $ZSH_CUSTOM/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh
+source $ZSH_CUSTOM/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 EOF
 
 echo "✅ All done! Run 'exec zsh' or restart your terminal to start using Zsh."
