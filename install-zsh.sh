@@ -69,10 +69,18 @@ export RUNZSH=no
 export CHSH=no
 export ZSH="$TARGET_HOME/.oh-my-zsh"
 
+# Ensure .zshrc exists BEFORE installing Oh My Zsh
+if [ ! -f "$TARGET_HOME/.zshrc" ]; then
+    echo "# .zshrc created by install-zsh.sh" > "$TARGET_HOME/.zshrc"
+    chown "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.zshrc"
+fi
+
+# Install Oh My Zsh without overwriting .zshrc
 if [ -d "$ZSH" ]; then
   echo "⚠️  Oh My Zsh already installed at $ZSH. Skipping installation."
 else
-  sudo -u "$TARGET_USER" sh -c 'RUNZSH=no CHSH=no bash -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+  sudo -u "$TARGET_USER" KEEP_ZSHRC=yes RUNZSH=no CHSH=no \
+    sh -c 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
 fi
 
 ZSH_CUSTOM="${ZSH_CUSTOM:-$ZSH/custom}"
