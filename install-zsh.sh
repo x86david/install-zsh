@@ -14,7 +14,7 @@ apt install -y zsh curl git
 echo ""
 echo "🛠️  Zsh is installed. How would you like to set it as the default shell?"
 echo "1) Only for the current user ($TARGET_USER)"
-echo "2) For all existing users (including root)"
+echo "2) For all existing users who currently use /bin/bash"
 echo "3) For all future users (via /etc/default/useradd)"
 echo "4) All of the above"
 echo "5) Skip setting default shell"
@@ -22,17 +22,24 @@ read -rp "Enter your choice [1-5]: " ZSH_CHOICE
 
 ZSH_PATH="$(which zsh)"
 
+# Function: change shell only for users who currently use /bin/bash
+change_shell_for_bash_users() {
+    echo "🔧 Setting Zsh as default shell ONLY for users who currently use /bin/bash"
+    echo "ℹ️  This avoids modifying system accounts or users with nologin/false shells."
+
+    for u in $(awk -F: '$7 == "/bin/bash" {print $1}' /etc/passwd); do
+        echo "🔄 Changing shell for user: $u"
+        chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
+    done
+}
+
 case "$ZSH_CHOICE" in
   1)
     echo "🔧 Setting Zsh as default shell for current user: $TARGET_USER"
     chsh -s "$ZSH_PATH" "$TARGET_USER"
     ;;
   2)
-    echo "🔧 Setting Zsh as default shell for all existing users (including root)"
-    for u in $(awk -F: '{ if ($3 >= 1000 || $1 == "root") print $1 }' /etc/passwd); do
-      echo "🔄 Changing shell for user: $u"
-      chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
-    done
+    change_shell_for_bash_users
     ;;
   3)
     echo "🔧 Setting Zsh as default shell for all future users"
@@ -40,12 +47,13 @@ case "$ZSH_CHOICE" in
     ;;
   4)
     echo "🔧 Applying all options..."
+
     echo "🔄 Changing shell for current user: $TARGET_USER"
     chsh -s "$ZSH_PATH" "$TARGET_USER"
-    for u in $(awk -F: '{ if ($3 >= 1000 || $1 == "root") print $1 }' /etc/passwd); do
-      echo "🔄 Changing shell for user: $u"
-      chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
-    done
+
+    change_shell_for_bash_users
+
+    echo "🔧 Setting Zsh as default shell for all future users"
     sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
     ;;
   5)
