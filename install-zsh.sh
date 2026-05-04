@@ -1,122 +1,133 @@
 #!/bin/bash
-
-# Exit on error
 set -e
 
-# Determine the target user and home directory
-TARGET_USER="${SUDO_USER:-$(whoami)}"
-TARGET_HOME=$(eval echo "~$TARGET_USER")
+###############################################
+# 1. DESINSTALAR ZSH DE TODO EL SISTEMA
+###############################################
 
-echo "🔧 Installing Zsh and dependencies..."
+echo "[1] Eliminando paquetes Zsh..."
+apt purge -y zsh zsh-common || true
+apt autoremove -y || true
+
+echo "[2] Eliminando configuraciones de usuarios reales..."
+while IFS=: read -r user _ uid _ _ home shell; do
+    [ "$uid" -ge 1000 ] || [ "$user" = "root" ] || continue
+    [ -d "$home" ] || continue
+
+    rm -f  "$home/.zshrc"
+    rm -rf "$home/.oh-my-zsh"
+done < /etc/passwd
+
+echo "[3] Eliminando configuraciones globales..."
+rm -rf /etc/zsh || true
+rm -f /etc/zshenv /etc/zprofile /etc/zlogin /etc/zlogout /etc/zshrc || true
+
+echo "[4] Restaurando /bin/bash como shell..."
+cp /etc/passwd /etc/passwd.bak.$(date +%s)
+sed -i 's#/usr/bin/zsh#/bin/bash#g; s#/bin/zsh#/bin/bash#g' /etc/passwd
+
+###############################################
+# 2. INSTALACIÓN DE ZSH
+###############################################
+
+echo
+echo "¿A quién quieres instalar Zsh?"
+echo "1) Solo al usuario actual ($USER)"
+echo "2) Solo a root"
+echo "3) A TODOS los usuarios reales (UID >= 1000) + root"
+read -p "Elige una opción (1/2/3): " opt
+
+install_for_user() {
+    local user="$1"
+    local home_dir
+    home_dir=$(eval echo "~$user")
+
+    echo "→ Instalando Zsh para $user (home: $home_dir)"
+
+    sudo -u "$user" RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c \
+        'bash -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+
+    ZSH_CUSTOM="$home_dir/.oh-my-zsh/custom"
+
+    sudo -u "$user" git clone https://github.com/zsh-users/zsh-autosuggestions \
+        "$ZSH_CUSTOM/plugins/zsh-autosuggestions" 2>/dev/null || true
+
+    sudo -u "$user" git clone https://github.com/zsh-users/zsh-syntax-highlighting \
+        "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" 2>/dev/null || true
+
+    sudo -u "$user" git clone https://github.com/zsh-users/zsh-history-substring-search \
+        "$ZSH_CUSTOM/plugins/zsh-history-substring-search" 2>/dev/null || true
+
+    cat <<EOF | sudo tee "$home_dir/.zshrc" >/dev/null
+export ZSH="$home_dir/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-history-substring-search
+)
+
+source \$ZSH/oh-my-zsh.sh
+
+# Prompt profesional tipo bash
+PROMPT='%F{green}%n@%m%f:%F{blue}%~%f %# '
+
+autoload -Uz compinit
+compinit
+EOF
+
+    chown "$user":"$user" "$home_dir/.zshrc"
+    chsh -s /usr/bin/zsh "$user"
+}
+
+echo "[5] Instalando paquetes..."
 apt update
 apt install -y zsh curl git
 
-echo ""
-echo "🛠️  Zsh is installed. How would you like to set it as the default shell?"
-echo "1) Only for the current user ($TARGET_USER)"
-echo "2) For all existing users who currently use /bin/bash"
-echo "3) For all future users (via /etc/default/useradd)"
-echo "4) All of the above"
-echo "5) Skip setting default shell"
-read -rp "Enter your choice [1-5]: " ZSH_CHOICE
-
-ZSH_PATH="$(which zsh)"
-
-# Function: change shell only for users who currently use /bin/bash
-change_shell_for_bash_users() {
-    echo "🔧 Setting Zsh as default shell ONLY for users who currently use /bin/bash"
-    for u in $(awk -F: '$7 == "/bin/bash" {print $1}' /etc/passwd); do
-        echo "🔄 Changing shell for user: $u"
-        chsh -s "$ZSH_PATH" "$u" || echo "⚠️ Failed to change shell for $u"
-    done
-}
-
-case "$ZSH_CHOICE" in
-  1)
-    chsh -s "$ZSH_PATH" "$TARGET_USER"
-    ;;
-  2)
-    change_shell_for_bash_users
-    ;;
-  3)
-    sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
-    ;;
-  4)
-    chsh -s "$ZSH_PATH" "$TARGET_USER"
-    change_shell_for_bash_users
-    sed -i "s|^SHELL=.*|SHELL=$ZSH_PATH|" /etc/default/useradd
-    ;;
-  5)
-    echo "⏭️  Skipping shell change."
-    ;;
+case "$opt" in
+    1) install_for_user "$USER" ;;
+    2) install_for_user "root" ;;
+    3)
+        install_for_user "root"
+        while IFS=: read -r user _ uid _ _ home shell; do
+            [ "$uid" -ge 1000 ] || continue
+            [ -d "$home" ] || continue
+            install_for_user "$user"
+        done < /etc/passwd
+        ;;
+    *) echo "Opción inválida." ; exit 1 ;;
 esac
 
-echo "🎨 Installing Oh My Zsh for $TARGET_USER..."
-export RUNZSH=no
-export CHSH=no
-export ZSH="$TARGET_HOME/.oh-my-zsh"
+###############################################
+# 3. CONFIGURACIÓN POR DEFECTO PARA NUEVOS USUARIOS
+###############################################
 
-# Ensure .zshrc exists BEFORE installing Oh My Zsh
-if [ ! -f "$TARGET_HOME/.zshrc" ]; then
-    echo "# .zshrc created by install-zsh.sh" > "$TARGET_HOME/.zshrc"
-    chown "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.zshrc"
-fi
+echo "[6] Configurando Zsh por defecto para nuevos usuarios..."
 
-# Install Oh My Zsh without overwriting .zshrc
-if [ ! -d "$ZSH" ]; then
-  sudo -u "$TARGET_USER" KEEP_ZSHRC=yes RUNZSH=no CHSH=no \
-    sh -c 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
-else
-  echo "⚠️  Oh My Zsh already installed. Skipping."
-fi
+mkdir -p /etc/skel
 
-ZSH_CUSTOM="${ZSH_CUSTOM:-$ZSH/custom}"
+cat <<'EOF' > /etc/skel/.zshrc
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
 
-echo "✨ Installing plugins..."
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-history-substring-search
+)
 
-# zsh-autosuggestions
-if [ ! -d "${ZSH_CUSTOM}/plugins/zsh-autosuggestions" ]; then
-  sudo -u "$TARGET_USER" git clone https://github.com/zsh-users/zsh-autosuggestions "${ZSH_CUSTOM}/plugins/zsh-autosuggestions"
-fi
+source \$ZSH/oh-my-zsh.sh
 
-# zsh-syntax-highlighting
-if [ ! -d "${ZSH_CUSTOM}/plugins/zsh-syntax-highlighting" ]; then
-  sudo -u "$TARGET_USER" git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "${ZSH_CUSTOM}/plugins/zsh-syntax-highlighting"
-fi
+PROMPT='%F{green}%n@%m%f:%F{blue}%~%f %# '
 
-# zsh-history-substring-search
-if [ ! -d "${ZSH_CUSTOM}/plugins/zsh-history-substring-search" ]; then
-  sudo -u "$TARGET_USER" git clone https://github.com/zsh-users/zsh-history-substring-search "${ZSH_CUSTOM}/plugins/zsh-history-substring-search"
-fi
-
-echo "🧠 Updating .zshrc for $TARGET_USER..."
-
-ZSHRC="$TARGET_HOME/.zshrc"
-
-# Replace plugins line or add it if missing
-if grep -q "^plugins=" "$ZSHRC"; then
-  sed -i 's/^plugins=.*/plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search)/' "$ZSHRC"
-else
-  echo 'plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search)' >> "$ZSHRC"
-fi
-
-# Append configuration block in correct order
-cat << 'EOF' >> "$ZSHRC"
-
-# Fix for syntax highlighting commands like 'service'
-export PATH=$PATH:/usr/sbin
-
-# Bash-style prompt with green username@host
-PROMPT='%F{green}%n@%m:%~%f$ '
-
-# Enable completion system
 autoload -Uz compinit
 compinit
-
-# Load plugins in correct order
-source $ZSH_CUSTOM/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
-source $ZSH_CUSTOM/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh
-source $ZSH_CUSTOM/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 EOF
 
-echo "✅ All done! Run 'exec zsh' or restart your terminal to start using Zsh."
+echo "✔ Nuevos usuarios tendrán Zsh configurado automáticamente."
+
+echo "✔ Instalación completada. Ejecuta: exec zsh"
+
